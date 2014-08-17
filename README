@@ -1,0 +1,12 @@
+Polar2Tcx
+
+Description
+===========
+Convert xml and gpx files from Polar personal trainer wedsite to tcx-files to
+upload to strava
+
+Instructions
+============
+Name the input files in.xml and out.xml
+Run polar2tcx.py
+The output is found in out.tcx
