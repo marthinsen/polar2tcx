@@ -3,7 +3,7 @@ Polar2Tcx
 Description
 ===========
 Convert xml and gpx files from Polar personal trainer wedsite to tcx-files to
-upload to strava
+upload to Strava. Only for personal use. Has a lot of limitations.
 
 Instructions
 ============
