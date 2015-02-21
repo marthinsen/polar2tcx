@@ -59,15 +59,14 @@ class PolarEx:
 class PolarLap:
     ''' Class representing a single lap coming from the polar side.
     '''
-    def __init__(self, xml=None):
-        if xml is None:
-            self.index = 0
-            self.duration = 0
-            self.hrAvg = 0
-            self.hrMax = 0
-            self.power = 0
-            self.distance = 0
-        else:
+    def __init__(self, xml=None, polarEx=None):
+        self.index = 0
+        self.duration = 0
+        self.hrAvg = 0
+        self.hrMax = 0
+        self.power = 0
+        self.distance = 0
+        if xml is not None:
             self.index = xml.attributes["index"].value
             self.duration = str2timedelta(
                 xml.getElementsByTagName('duration')[0].childNodes[0].nodeValue)
@@ -75,14 +74,12 @@ class PolarLap:
                 hrVals = xml.getElementsByTagName('heart-rate')[0]
                 self.hrAvg = hrVals.getElementsByTagName('average')[0].childNodes[0].nodeValue
                 self.hrMax = hrVals.getElementsByTagName('maximum')[0].childNodes[0].nodeValue
-            else:
-                self.hrAvg = 0
-                self.hrMax = 0
             if xml.getElementsByTagName('distance'):
                 self.distance = xml.getElementsByTagName('distance')[0].childNodes[0].nodeValue
-            else:
-                self.distance = 0
-            self.power = 0
+
+        if polarEx is not None:
+            self.duration = polarEx.duration
+            self.startTime = polarEx.time
 
     def setStart(self, start):
         self.startTime = start
@@ -249,9 +246,7 @@ def processFiles():
     else:
         print("There are no laps in the given training file (%s)." % (xmlFile))
         print("Creating a pseudo lap.")
-        pseudoLap = PolarLap()
-        pseudoLap.index = 0
-        pseudoLap.duration = exercise.duration
+        pseudoLap = PolarLap(None, exercise)
         lapList.append(pseudoLap)
 
     # Start of XML output
