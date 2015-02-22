@@ -1,115 +1,352 @@
-#!/usr/bin/env python
+#!/usr/bin/python
 
 from xml.dom import minidom
 from datetime import datetime, timedelta
 import math
 import time
+import sys
+import getopt
+import os.path
+import pytz
+from pprint import pprint
 
-# Convert a string to a timedelta object
-# Correct format if necessary
+timefmt_out = '%Y-%m-%dT%H:%M:%SZ'      # output time format
+timefmt_ex  = '%Y-%m-%d %H:%M:%S.%f'    # Nothing special. Local time.
+timefmt_gpx = '%Y-%m-%dT%H:%M:%S.%fZ'   # Note: GPX uses ISO8601 in UTC!
+gpxFile = ''
+xmlFile = ''
+outFile = ''
+
 def str2timedelta(sTime):
-  if '.' not in sTime:
-    if sTime.count(':') == 1:
-      dTime = datetime.strptime(sTime, '%H:%M')
+    ''' Convert a string to a timedelta object.
+        Correct format if necessary.
+    '''
+    if '.' not in sTime:
+        if sTime.count(':') == 1:
+            dTime = datetime.strptime(sTime, '%H:%M')
+        else:
+            dTime = datetime.strptime(sTime.replace(':.',':00.'), '%H:%M:%S')
     else:
-      dTime = datetime.strptime(sTime.replace(':.',':00.'), '%H:%M:%S')
-  else:
-    dTime = datetime.strptime(sTime.replace(':.',':00.'), '%H:%M:%S.%f')
-  
-  return timedelta(hours=dTime.hour, minutes=dTime.minute, seconds=dTime.second, microseconds=dTime.microsecond)
+        dTime = datetime.strptime(sTime.replace(':.',':00.'), '%H:%M:%S.%f')
 
+    return timedelta(hours=dTime.hour, minutes=dTime.minute, seconds=dTime.second, microseconds=dTime.microsecond)
 
-# Round up a datetime object to next second
+class PolarEx:
+    ''' Class representing a Polar exercise.
+    '''
+    def __init__(self, xml):
+        self.time = datetime.strptime(
+            xml.getElementsByTagName("time")[0].childNodes[0].nodeValue, timefmt_ex)
+        if xml.getElementsByTagName("name"):
+            self.name  = xml.getElementsByTagName("name")[0].childNodes[0].nodeValue
+        else:
+            self.name = ""
+        self.sport = xml.getElementsByTagName("sport")[0].childNodes[0].nodeValue
+        resNode = xml.getElementsByTagName("result")[0]
+        self.duration = str2timedelta(resNode.getElementsByTagName("duration")[0].childNodes[0].nodeValue)
+        self.recRate = int(resNode.getElementsByTagName("recording-rate")[0].childNodes[0].nodeValue)
+        if len(resNode.getElementsByTagName("heart-rate")) > 1:
+            hrNode = resNode.getElementsByTagName("heart-rate")[1]
+            self.hrAvg = hrNode.getElementsByTagName("average")[0].childNodes[0].nodeValue
+            self.hrMax = hrNode.getElementsByTagName("maximum")[0].childNodes[0].nodeValue
+        else:
+            self.hrAvg = 0
+            self.hrMax = 0
+
+    def displayEx(self):
+        pprint(vars(self))
+
+class PolarLap:
+    ''' Class representing a single lap coming from the polar side.
+    '''
+    def __init__(self, xml=None, polarEx=None):
+        self.index = 0
+        self.duration = 0
+        self.hrAvg = 0
+        self.hrMax = 0
+        self.power = 0
+        self.distance = 0
+        if xml is not None:
+            self.index = xml.attributes["index"].value
+            self.duration = str2timedelta(
+                xml.getElementsByTagName('duration')[0].childNodes[0].nodeValue)
+            if xml.getElementsByTagName('heart-rate'):
+                hrVals = xml.getElementsByTagName('heart-rate')[0]
+                self.hrAvg = hrVals.getElementsByTagName('average')[0].childNodes[0].nodeValue
+                self.hrMax = hrVals.getElementsByTagName('maximum')[0].childNodes[0].nodeValue
+            if xml.getElementsByTagName('distance'):
+                self.distance = xml.getElementsByTagName('distance')[0].childNodes[0].nodeValue
+
+        if polarEx is not None:
+            self.duration = polarEx.duration
+            self.startTime = polarEx.time
+
+    def setStart(self, start):
+        self.startTime = start
+
+    def xmlHeader(self, out):
+        out.write('      <Lap StartTime="' + self.startTime.strftime(timefmt_out)  + '">\n')
+        out.write('        <TotalTimeSeconds>' + str(self.duration.total_seconds()) + '</TotalTimeSeconds>\n')
+        out.write('        <DistanceMeters>' + str(self.distance) + '</DistanceMeters>\n')
+        out.write('        <AverageHeartRateBpm>\n')
+        out.write('          <Value>' + str(self.hrAvg) + '</Value>\n')
+        out.write('        </AverageHeartRateBpm>\n')
+        out.write('        <MaximumHeartRateBpm>\n')
+        out.write('          <Value>' + str(self.hrMax) + '</Value>\n')
+        out.write('        </MaximumHeartRateBpm>\n')
+        out.write('        <Track>\n')
+
+    def xmlFooter(self, out):
+        out.write('        </Track>\n')
+        out.write('      </Lap>\n')
+
+    def displayLap(self):
+        pprint(vars(self))
+
+class GpxTrackPt:
+    ''' Represents a single track coming from a GPX file.
+    '''
+    def __init__(self, xml):
+        self.lat = xml.attributes["lat"].value
+        self.lon = xml.attributes["lon"].value
+        self.ele = xml.getElementsByTagName("ele")[0].childNodes[0].nodeValue
+        self.time = datetime.strptime(
+            xml.getElementsByTagName("time")[0].childNodes[0].nodeValue, timefmt_gpx)
+        self.nsat = xml.getElementsByTagName("sat")[0].childNodes[0].nodeValue
+
+    def toXML(self, fd):
+        fd.write('            <Position>\n')
+        fd.write('              <LatitudeDegrees>' +  self.lat + '</LatitudeDegrees>\n')
+        fd.write('              <LongitudeDegrees>' + self.lon + '</LongitudeDegrees>\n')
+        fd.write('            </Position>\n')
+        fd.write('            <AltitudeMeters>' + self.ele + '</AltitudeMeters>\n')
+
+    def displayPt(self):
+        pprint(vars(self))
+
+class PolarLapFactory:
+    ''' Class serving as a factory for PolarLap objects.
+    '''
+    @staticmethod
+    def getLapsFromXML(xml, startTime):
+        ret = []
+        start = startTime
+        xmlLaps = xml.getElementsByTagName('lap')
+        for xmlLap in xmlLaps:
+            lap = PolarLap(xmlLap)
+            lap.setStart(start)
+            ret.append(lap)
+            start += lap.duration
+        return ret
+
 def ceilTime(dTime):
-  if dTime.microsecond > 0:
-    dTime = dTime.replace(second=dTime.second+1, microsecond=0)
-  return dTime
+    ''' Round up a datetime object to next second
+    '''
+    if dTime.microsecond > 0:
+        dTime = dTime.replace(second=dTime.second+1, microsecond=0)
+    return dTime
 
-# Calculate start time as gpx end-time minus number of hrm values
-def startTime(hrm, trkList):
-  gpx_time = datetime.strptime(trkList[-1].getElementsByTagName('time')[0].childNodes[0].nodeValue, '%Y-%m-%dT%H:%M:%S.%fZ')
-  duration = timedelta(0,len(hrm)-1)
-  return gpx_time - duration
+def localTime2UTC(localTime):
+    ''' Converts the given time to UTC with respect to the current locale.
+    '''
+    local = localTime.strftime(timefmt_ex)
+    timestamp = str(time.mktime(datetime.strptime(local, timefmt_ex).timetuple()) )[:-2]
+    utc = datetime.utcfromtimestamp(int(timestamp))
+    return utc
 
-xml = minidom.parse('in.xml')
-gpx = minidom.parse('in.gpx')
+def startTime(xml):
+    ''' Calculate start time as gpx end-time minus number of hrm values.
+    '''
+    localTime = datetime.strptime(xml.getElementsByTagName("exercise")[0]
+        .getElementsByTagName("time")[0].childNodes[0].nodeValue, timefmt_ex)
+    utcTime = localTime2UTC(localTime)
+    return utcTime
 
-trkList  = gpx.getElementsByTagName('trkpt')
+def usage():
+    ''' Prints the scripts' usage.
+    '''
+    print("%s usage:" % (sys.argv[0]))
+    print("%s [-hoxg]" % (sys.argv[0]))
+    print("  -h --help    print this help")
+    print("  -x --xml     XML input file")
+    print("  -g --gpx     GPX input file")
+    print("  -o --out     XML output file")
 
-hrm = xml.getElementsByTagName('sample')[0].getElementsByTagName('values')[0].childNodes[0].nodeValue.split(',')
-laps = xml.getElementsByTagName('laps')[0].getElementsByTagName('lap')
+def xmlOutHeader(out, exercise):
+    ''' Writes the output XML header to the given file.
+    '''
+    out.write('<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n')
+    out.write('<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">\n\n')
+    out.write('  <Activities>\n')
+    out.write('    <Activity Sport="'+exercise.sport+'">\n')
+    out.write('      <Id>' + exercise.time.strftime(timefmt_out) + '</Id>\n')
 
-#print "Time offset: " + str(offset(xml, trkList)) + " s"
-start_time = startTime(hrm, trkList) #datetime.strptime(xml.getElementsByTagName('time')[0].firstChild.nodeValue, '%Y-%m-%d %H:%M:%S.0') + timedelta(0,time.altzone+offset(xml,trkList))
+def xmlOutFooter(out):
+    ''' Writes the XML footer to the given file.
+    '''
+    out.write('    </Activity>\n')
+    out.write('  </Activities>\n')
+    out.write('</TrainingCenterDatabase>\n')
 
-time_format = '%Y-%m-%dT%H:%M:%SZ'
+def createTrackPointHash(gpx):
+    ''' Creates the hash table of GpxTrackPt objects, where the time of each
+        GpxTrackPt serves as the key.
+    '''
+    retHash = {}
+    trkList = gpx.getElementsByTagName('trkpt')
+    for trk in trkList:
+        trkPt = GpxTrackPt(trk)
+        retHash[trkPt.time] = trkPt
+    print("%d GPX track points have been parsed and created." % (len(retHash)))
+    return retHash
 
-out = open('out.tcx','w')
+def processFiles():
+    ''' Processes the input file(s).
+    '''
+    # Open the output file
+    try:
+        out = open(outFile,'w')
+    except:
+        print("Could not open %s for writing. Exiting." % outFile)
+        sys.exit(1)
 
-out.write('<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n')
-out.write('<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">\n\n')
+    xml = minidom.parse(xmlFile)
+    gpxTrkPts = {}
+    if gpxFile:
+        gpx = minidom.parse(gpxFile)
+        gpxTrkPts = createTrackPointHash(gpx)
 
-out.write('  <Activities>\n')
-out.write('    <Activity Sport="Running">\n')
-out.write('      <Id>' + start_time.strftime(time_format) + '</Id>\n')
+    # TODO: we might have several exercises in one XML :(
+    exercise = PolarEx(xml.getElementsByTagName("exercise")[0])
 
-lap_time = start_time
-count_hrm = 0
-count_pos = 0
-n_gps = 0
+    # Extract HRM and speed values and split them
+    hrmList = []
+    speedList = []
+    sampleList = xml.getElementsByTagName('sample')
+    for sample in sampleList:
+        type = sample.getElementsByTagName('type')[0].childNodes[0].nodeValue
+        if type.lower() == 'heartrate':
+            hrmList = sample.getElementsByTagName('values')[0].childNodes[0].nodeValue.split(',')
+        if type.lower() == 'speed':
+            speedList = sample.getElementsByTagName('values')[0].childNodes[0].nodeValue.split(',')
+    print("Found %d HRM values." % (len(hrmList)))
+    print("Found %d speed values." % (len(speedList)))
 
-for lap in laps:
+    # Determine the start time(s)
+    start_time = startTime(xml)
+    print("XML start time: %s" % str(start_time))
+    if gpxTrkPts:
+        print("GPX start time: %s" % str(sorted(gpxTrkPts.keys())[0]))
 
-  # calculate laptime
-  lap_duration = str2timedelta(lap.getElementsByTagName('duration')[0].childNodes[0].nodeValue)
-  lap_distance = lap.getElementsByTagName('distance')[0].childNodes[0].nodeValue
-  lap_avg_bpm = lap.getElementsByTagName('heart-rate')[0].getElementsByTagName('average')[0].childNodes[0].nodeValue
-  lap_max_bpm = lap.getElementsByTagName('heart-rate')[0].getElementsByTagName('maximum')[0].childNodes[0].nodeValue
+    # Extract the list of laps
+    lapList = []
+    if xml.getElementsByTagName('laps'):
+        lapList = PolarLapFactory.getLapsFromXML(xml.getElementsByTagName('laps')[0], start_time)
+        print("%d laps have been parsed and created." % (len(lapList)))
+    else:
+        print("There are no laps in the given training file (%s)." % (xmlFile))
+        print("Creating a pseudo lap.")
+        pseudoLap = PolarLap(None, exercise)
+        lapList.append(pseudoLap)
 
-  out.write('      <Lap StartTime="' + lap_time.strftime(time_format)  + '">\n')
-  out.write('        <TotalTimeSeconds>' + str( lap_duration.total_seconds() ) + '</TotalTimeSeconds>\n')
-  out.write('        <DistanceMeters>' + lap_distance + '</DistanceMeters>\n')
-  out.write('        <AverageHeartRateBpm>\n')
-  out.write('          <Value>' + lap_avg_bpm + '</Value>\n')
-  out.write('        </AverageHeartRateBpm>\n')
-  out.write('        <MaximumHeartRateBpm>\n')
-  out.write('          <Value>' + lap_max_bpm + '</Value>\n')
-  out.write('        </MaximumHeartRateBpm>\n')
-  out.write('        <Track>\n')
-  
-  time = ceilTime(lap_time)
+    # Start of XML output
+    xmlOutHeader(out, exercise)
 
-  while(time < lap_time + lap_duration) and count_hrm < len(hrm) and count_pos < len(trkList):
-    out.write('          <Trackpoint>\n')
-    out.write('            <Time>' + time.strftime(time_format) + '</Time>\n')
-    
-    gpx_time = datetime.strptime(trkList[count_pos].getElementsByTagName('time')[0].childNodes[0].nodeValue, '%Y-%m-%dT%H:%M:%S.%fZ')
+    # For each lap...
+    curLapTime = start_time
+    curHrm = 0
+    curSpeed = 0
+    nAssignedGpx = 0
+    for lap in lapList:
 
-    if gpx_time == time:
-      out.write('            <Position>\n')
-      out.write('              <LatitudeDegrees>' +  trkList[count_pos].getAttribute('lat') + '</LatitudeDegrees>\n')
-      out.write('              <LongitudeDegrees>' + trkList[count_pos].getAttribute('lon') + '</LongitudeDegrees>\n')
-      out.write('            </Position>\n')
-      
-      count_pos = count_pos + 1
-      #print count_pos
+        lap.xmlHeader(out)
+        curTime = ceilTime(curLapTime)
+        while (curTime < curLapTime + lap.duration):
+            out.write('          <Trackpoint>\n')
+            out.write('            <Time>' + curTime.strftime(timefmt_out) + '</Time>\n')
 
-    out.write('            <HeartRateBpm>\n')
-    out.write('              <Value>' + hrm[count_hrm] + '</Value>\n')
-    out.write('            </HeartRateBpm>\n')
-    out.write('          </Trackpoint>\n')
-   
-    time = time + timedelta(0,1)
-    count_hrm = count_hrm + 1
-    
-  out.write('        </Track>\n')
-  out.write('      </Lap>\n')
+            # Look up the current time in the GPX hashtable
+            if curTime in gpxTrkPts:
+                trk = gpxTrkPts[curTime]
+                trk.toXML(out)
+                nAssignedGpx += 1
 
-  # Update laptime
-  lap_time = lap_time + lap_duration
+            # HRM
+            if curHrm < len(hrmList):
+                out.write('            <HeartRateBpm>\n')
+                out.write('              <Value>' + hrmList[curHrm] + '</Value>\n')
+                out.write('            </HeartRateBpm>\n')
+                curHrm += 1
 
-out.write('    </Activity>\n')
-out.write('  </Activities>\n')
-out.write('</TrainingCenterDatabase>\n')
+            # Speed
+            if curSpeed < len(speedList):
+                out.write('            <Extensions>\n')
+                out.write('               <TPX xmlns="http://www.garmin.com/xmlschemas/ActivityExtension/v2">\n')
+                out.write('                 <Speed>' + speedList[curSpeed]  + '</Speed>\n')
+                out.write('               </TPX>\n')
+                out.write('            </Extensions>\n')
+                curSpeed += 1
 
-out.close()
+            out.write('          </Trackpoint>\n')
+
+            curTime += timedelta(0, exercise.recRate)
+            # end while
+
+        lap.xmlFooter(out)
+        curLapTime += lap.duration
+        # end for lap in lapList
+
+    print("%d GPX track points have been assigned." % (nAssignedGpx))
+    xmlOutFooter(out)
+    out.close()
+
+def main():
+    ''' our main()
+    '''
+    global xmlFile, gpxFile, outFile
+    # parse command line arguments
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], "hx:g:o:", ["help", "xml=", "gpx=", "out="])
+    except getopt.GetoptError as err:
+        print(str(err))
+        usage()
+        sys.exit(2)
+    for o, a in opts:
+        if o in ("-h", "--help"):
+            usage()
+            sys.exit(2)
+        elif o in ("-x", "--xml"):
+            xmlFile = a
+        elif o in ("-g", "--gpx"):
+            gpxFile = a
+        elif o in ("-o", "--out"):
+            outFile = a
+        else:
+            assert False, "unhandled option"
+
+    # At least xml and an output file needs to be given
+    if not outFile:
+        print("Please provide an output file.")
+        usage()
+        sys.exit(1)
+    if not xmlFile:
+        print("Please provide an XML input file.")
+        usage()
+        sys.exit(1)
+
+    # check the files for existence
+    if xmlFile and not os.path.isfile(xmlFile):
+        print("The given XML file %s doesn't exist." % (xmlFile))
+        sys.exit(1)
+    if gpxFile and not os.path.isfile(gpxFile):
+        print("The given GPX file %s doesn't exist." % (gpxFile))
+        sys.exit(1)
+    if os.path.isfile(outFile):
+        print("The given output file %s already exists. Exiting." % (outFile))
+        sys.exit(1)
+
+    processFiles()
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()
