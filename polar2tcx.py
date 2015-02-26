@@ -2,20 +2,19 @@
 
 from xml.dom import minidom
 from datetime import datetime, timedelta
-import math
 import time
 import sys
 import argparse
 import os.path
-import pytz
 from pprint import pprint
 
 timefmt_out = '%Y-%m-%dT%H:%M:%SZ'      # output time format
-timefmt_ex  = '%Y-%m-%d %H:%M:%S.%f'    # Nothing special. Local time.
+timefmt_ex = '%Y-%m-%d %H:%M:%S.%f'    # Nothing special. Local time.
 timefmt_gpx = '%Y-%m-%dT%H:%M:%S.%fZ'   # Note: GPX uses ISO8601 in UTC!
 gpxFile = ''
 xmlFile = ''
 outFile = ''
+
 
 def str2timedelta(sTime):
     ''' Convert a string to a timedelta object.
@@ -25,11 +24,13 @@ def str2timedelta(sTime):
         if sTime.count(':') == 1:
             dTime = datetime.strptime(sTime, '%H:%M')
         else:
-            dTime = datetime.strptime(sTime.replace(':.',':00.'), '%H:%M:%S')
+            dTime = datetime.strptime(sTime.replace(':.', ':00.'), '%H:%M:%S')
     else:
-        dTime = datetime.strptime(sTime.replace(':.',':00.'), '%H:%M:%S.%f')
+        dTime = datetime.strptime(sTime.replace(':.', ':00.'), '%H:%M:%S.%f')
 
-    return timedelta(hours=dTime.hour, minutes=dTime.minute, seconds=dTime.second, microseconds=dTime.microsecond)
+    return timedelta(hours=dTime.hour, minutes=dTime.minute,
+                     seconds=dTime.second, microseconds=dTime.microsecond)
+
 
 class PolarEx:
     ''' Class representing a Polar exercise.
@@ -38,7 +39,7 @@ class PolarEx:
         self.time = datetime.strptime(
             xml.getElementsByTagName("time")[0].childNodes[0].nodeValue, timefmt_ex)
         if xml.getElementsByTagName("name"):
-            self.name  = xml.getElementsByTagName("name")[0].childNodes[0].nodeValue
+            self.name = xml.getElementsByTagName("name")[0].childNodes[0].nodeValue
         else:
             self.name = ""
         self.sport = xml.getElementsByTagName("sport")[0].childNodes[0].nodeValue
@@ -55,6 +56,7 @@ class PolarEx:
 
     def displayEx(self):
         pprint(vars(self))
+
 
 class PolarLap:
     ''' Class representing a single lap coming from the polar side.
@@ -85,7 +87,7 @@ class PolarLap:
         self.startTime = start
 
     def xmlHeader(self, out):
-        out.write('      <Lap StartTime="' + self.startTime.strftime(timefmt_out)  + '">\n')
+        out.write('      <Lap StartTime="' + self.startTime.strftime(timefmt_out) + '">\n')
         out.write('        <TotalTimeSeconds>' + str(self.duration.total_seconds()) + '</TotalTimeSeconds>\n')
         out.write('        <DistanceMeters>' + str(self.distance) + '</DistanceMeters>\n')
         out.write('        <AverageHeartRateBpm>\n')
@@ -103,6 +105,7 @@ class PolarLap:
     def displayLap(self):
         pprint(vars(self))
 
+
 class GpxTrackPt:
     ''' Represents a single track coming from a GPX file.
     '''
@@ -116,13 +119,14 @@ class GpxTrackPt:
 
     def toXML(self, fd):
         fd.write('            <Position>\n')
-        fd.write('              <LatitudeDegrees>' +  self.lat + '</LatitudeDegrees>\n')
+        fd.write('              <LatitudeDegrees>' + self.lat + '</LatitudeDegrees>\n')
         fd.write('              <LongitudeDegrees>' + self.lon + '</LongitudeDegrees>\n')
         fd.write('            </Position>\n')
         fd.write('            <AltitudeMeters>' + self.ele + '</AltitudeMeters>\n')
 
     def displayPt(self):
         pprint(vars(self))
+
 
 class PolarLapFactory:
     ''' Class serving as a factory for PolarLap objects.
@@ -139,6 +143,7 @@ class PolarLapFactory:
             start += lap.duration
         return ret
 
+
 def ceilTime(dTime):
     ''' Round up a datetime object to next second
     '''
@@ -146,30 +151,40 @@ def ceilTime(dTime):
         dTime = dTime.replace(second=dTime.second+1, microsecond=0)
     return dTime
 
+
 def localTime2UTC(localTime):
     ''' Converts the given time to UTC with respect to the current locale.
     '''
     local = localTime.strftime(timefmt_ex)
-    timestamp = str(time.mktime(datetime.strptime(local, timefmt_ex).timetuple()) )[:-2]
+    timestamp = str(time.mktime(datetime.strptime(local, timefmt_ex).timetuple()))[:-2]
     utc = datetime.utcfromtimestamp(int(timestamp))
     return utc
+
 
 def startTime(xml):
     ''' Calculate start time as gpx end-time minus number of hrm values.
     '''
-    localTime = datetime.strptime(xml.getElementsByTagName("exercise")[0]
-        .getElementsByTagName("time")[0].childNodes[0].nodeValue, timefmt_ex)
+    localTime = datetime.strptime(
+        xml.getElementsByTagName("exercise")[0].getElementsByTagName("time")[0].childNodes[0].nodeValue,
+        timefmt_ex)
     utcTime = localTime2UTC(localTime)
     return utcTime
+
 
 def xmlOutHeader(out, exercise):
     ''' Writes the output XML header to the given file.
     '''
     out.write('<?xml version="1.0" encoding="UTF-8" standalone="no" ?>\n')
-    out.write('<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">\n\n')
+    out.write('<TrainingCenterDatabase xmlns="http://www.garmin.com/'
+              'xmlschemas/TrainingCenterDatabase/v2" '
+              'xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+              'xsi:schemaLocation="http://www.garmin.com/xmlschemas/'
+              'TrainingCenterDatabase/v2 http://www.garmin.com/xmlschemas/'
+              'TrainingCenterDatabasev2.xsd">\n\n')
     out.write('  <Activities>\n')
     out.write('    <Activity Sport="'+exercise.sport+'">\n')
     out.write('      <Id>' + exercise.time.strftime(timefmt_out) + '</Id>\n')
+
 
 def xmlOutFooter(out):
     ''' Writes the XML footer to the given file.
@@ -177,6 +192,7 @@ def xmlOutFooter(out):
     out.write('    </Activity>\n')
     out.write('  </Activities>\n')
     out.write('</TrainingCenterDatabase>\n')
+
 
 def createTrackPointHash(gpx):
     ''' Creates the hash table of GpxTrackPt objects, where the time of each
@@ -190,12 +206,13 @@ def createTrackPointHash(gpx):
     print("%d GPX track points have been parsed and created." % (len(retHash)))
     return retHash
 
+
 def processFiles():
     ''' Processes the input file(s).
     '''
     # Open the output file
     try:
-        out = open(outFile,'w')
+        out = open(outFile, 'w')
     except:
         print("Could not open %s for writing. Exiting." % outFile)
         sys.exit(1)
@@ -272,7 +289,7 @@ def processFiles():
             if curSpeed < len(speedList):
                 out.write('            <Extensions>\n')
                 out.write('               <TPX xmlns="http://www.garmin.com/xmlschemas/ActivityExtension/v2">\n')
-                out.write('                 <Speed>' + speedList[curSpeed]  + '</Speed>\n')
+                out.write('                 <Speed>' + speedList[curSpeed] + '</Speed>\n')
                 out.write('               </TPX>\n')
                 out.write('            </Extensions>\n')
                 curSpeed += 1
@@ -289,6 +306,7 @@ def processFiles():
     print("%d GPX track points have been assigned." % (nAssignedGpx))
     xmlOutFooter(out)
     out.close()
+
 
 def main():
     ''' our main()
@@ -332,6 +350,7 @@ def main():
 
     processFiles()
     sys.exit(0)
+
 
 if __name__ == "__main__":
     main()
