@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import math
 import time
 import sys
-import getopt
+import argparse
 import os.path
 import pytz
 from pprint import pprint
@@ -162,16 +162,6 @@ def startTime(xml):
     utcTime = localTime2UTC(localTime)
     return utcTime
 
-def usage():
-    ''' Prints the scripts' usage.
-    '''
-    print("%s usage:" % (sys.argv[0]))
-    print("%s [-hoxg]" % (sys.argv[0]))
-    print("  -h --help    print this help")
-    print("  -x --xml     XML input file")
-    print("  -g --gpx     GPX input file")
-    print("  -o --out     XML output file")
-
 def xmlOutHeader(out, exercise):
     ''' Writes the output XML header to the given file.
     '''
@@ -304,34 +294,29 @@ def main():
     ''' our main()
     '''
     global xmlFile, gpxFile, outFile
+
     # parse command line arguments
-    try:
-        opts, args = getopt.getopt(sys.argv[1:], "hx:g:o:", ["help", "xml=", "gpx=", "out="])
-    except getopt.GetoptError as err:
-        print(str(err))
-        usage()
-        sys.exit(2)
-    for o, a in opts:
-        if o in ("-h", "--help"):
-            usage()
-            sys.exit(2)
-        elif o in ("-x", "--xml"):
-            xmlFile = a
-        elif o in ("-g", "--gpx"):
-            gpxFile = a
-        elif o in ("-o", "--out"):
-            outFile = a
-        else:
-            assert False, "unhandled option"
+    parser = argparse.ArgumentParser(description="Convert Polar xml and gpx files to tcx")
+    parser.add_argument("-x", "--xml", help="xml input file")
+    parser.add_argument("-g", "--gpx", help="gpx input file")
+    parser.add_argument("-o", "--out", help="xml output file")
+    args = parser.parse_args()
+
+    if args.xml:
+        xmlFile = args.xml
+    if args.gpx:
+        gpxFile = args.gpx
+    if args.out:
+        outFile = args.out
 
     # At least xml and an output file needs to be given
     if not outFile:
         print("Please provide an output file.")
-        usage()
+        parser.print_help()
         sys.exit(1)
     if not xmlFile:
         print("Please provide an XML input file.")
-        usage()
+        parser.print_help()
         sys.exit(1)
 
     # check the files for existence
