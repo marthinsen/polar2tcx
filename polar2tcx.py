@@ -327,15 +327,16 @@ def main():
     if args.out:
         outFile = args.out
 
-    # At least xml and an output file needs to be given
-    if not outFile:
-        print("Please provide an output file.")
-        parser.print_help()
-        sys.exit(1)
+    # At least xml file needs to be given
     if not xmlFile:
         print("Please provide an XML input file.")
         parser.print_help()
         sys.exit(1)
+
+    # Give default output file name if none is given
+    # TODO: Should be based on the date of the exercise
+    if not outFile:
+        outFile = "exercise-" + time.strftime("%Y-%m-%d") + ".tcx"
 
     # check the files for existence
     if xmlFile and not os.path.isfile(xmlFile):
@@ -349,6 +350,7 @@ def main():
         sys.exit(1)
 
     processFiles()
+    print("Exercise is written to '%s'" % outFile)
     sys.exit(0)
 
 
