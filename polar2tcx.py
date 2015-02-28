@@ -315,23 +315,16 @@ def main():
 
     # parse command line arguments
     parser = argparse.ArgumentParser(description="Convert Polar xml and gpx files to tcx")
-    parser.add_argument("-x", "--xml", help="xml input file")
+    parser.add_argument("-x", "--xml", help="xml input file", required=True)
     parser.add_argument("-g", "--gpx", help="gpx input file")
     parser.add_argument("-o", "--out", help="xml output file")
     args = parser.parse_args()
 
-    if args.xml:
-        xmlFile = args.xml
+    xmlFile = args.xml
     if args.gpx:
         gpxFile = args.gpx
     if args.out:
         outFile = args.out
-
-    # At least xml file needs to be given
-    if not xmlFile:
-        print("Please provide an XML input file.")
-        parser.print_help()
-        sys.exit(1)
 
     # Give default output file name if none is given
     # TODO: Should be based on the date of the exercise
