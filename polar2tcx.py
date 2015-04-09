@@ -251,8 +251,6 @@ def processFiles():
         lapList = PolarLapFactory.getLapsFromXML(xml.getElementsByTagName('laps')[0], start_time)
         print("%d laps have been parsed and created." % (len(lapList)))
     else:
-        print("There are no laps in the given training file (%s)." % (xmlFile))
-        print("Creating a pseudo lap.")
         pseudoLap = PolarLap(None, exercise)
         lapList.append(pseudoLap)
 
