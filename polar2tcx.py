@@ -148,7 +148,7 @@ def ceilTime(dTime):
     ''' Round up a datetime object to next second
     '''
     if dTime.microsecond > 0:
-        dTime = dTime.replace(second=dTime.second+1, microsecond=0)
+        dTime = dTime.replace(microsecond=0) + timedelta(seconds=1)
     return dTime
 
 
