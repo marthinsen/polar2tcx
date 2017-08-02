@@ -1,4 +1,4 @@
-# Polar2Tcx
+# Polar2Tcx [![Build Status](https://travis-ci.org/marthinsen/polar2tcx.svg?branch=master)](https://travis-ci.org/marthinsen/polar2tcx)
 
 Polar2Tcx lets you convert and merge proprietary Polar XML/GPX files from
 www.polarpersonaltrainer.com into TCX files that can be uploaded to strava.com
