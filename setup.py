@@ -11,7 +11,7 @@ to install. Then you can run the script from everywhere by typing
 
 """
 
-from distutils.core import setup
+from setuptools import setup
 
 setup(name='Polar2tcx',
       version='1.0',

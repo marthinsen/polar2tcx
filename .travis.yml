@@ -9,6 +9,7 @@ python:
   - "nightly"
 script:
   - nosetests --with-coverage --cover-tests
+  - python setup.py install
 after_success:
   - CODECLIMATE_REPO_TOKEN=45945e6c2c5d9be4db9f3553e83285a66d09b5adfe841133c45995435ed62ab4 codeclimate-test-reporter
 
